@@ -1,0 +1,27 @@
+import {test,expect} from '@playwright/test';
+const key='pocket-world:fallen-star:v1';
+for(const choice of ['hill','square']) test(`${choice}: choose, transform, preview, reload, reset`,async({page})=>{
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/');
+  await expect(page.getByRole('heading',{name:'The Fallen Star'})).toBeVisible();
+  const target=page.locator(`[data-choice="${choice}"]`);
+  const bounds=await target.boundingBox();expect(bounds!.height).toBeGreaterThanOrEqual(44);
+  await target.tap();
+  await expect(page.locator('.memory')).toContainText(`You chose the ${choice}`);
+  await expect(page.locator(`#${choice}-mark`)).toHaveClass(/built/);
+  await expect(page.locator(`#${choice==='hill'?'square':'hill'}-mark`)).not.toHaveClass(/built/);
+  await page.getByRole('button',{name:'Preview Tomorrow'}).tap();
+  await expect(page.locator('.routine')).toHaveClass(/revealed/);
+  await expect(page.locator('.line')).toContainText(choice==='hill'?'blanket':'stools and tea');
+  await page.reload();await expect(page.locator('.line')).toContainText(choice==='hill'?'blanket':'stools and tea');
+  expect(await page.evaluate(k=>JSON.parse(localStorage.getItem(k)!).choice,key)).toBe(choice);
+  await page.getByRole('button',{name:'Reset Prototype'}).tap();
+  await expect(page.locator('[data-choice]')).toHaveCount(2);
+  await page.reload();await expect(page.locator('[data-choice]')).toHaveCount(2);
+  expect(errors).toEqual([]);
+});
+test('refresh during animation preserves first choice',async({page})=>{await page.goto('/');await page.locator('[data-choice="hill"]').tap();await page.reload();await expect(page.locator('.line')).toContainText('blanket');});
+test('reset during animation cancels pending result',async({page})=>{await page.goto('/');await page.locator('[data-choice="square"]').tap();await page.getByRole('button',{name:'Reset Prototype'}).tap();await page.waitForTimeout(3300);await expect(page.locator('[data-choice]')).toHaveCount(2);});
+test('corrupt save is recoverable and reduced motion works',async({page})=>{await page.addInitScript(k=>localStorage.setItem(k,'{broken'),key);await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/');await page.locator('[data-choice="square"]').tap();await expect(page.locator('.memory')).toBeVisible();});
+test('storage failure allows play and reports unsaved state',async({page})=>{await page.addInitScript(()=>{Storage.prototype.setItem=()=>{throw new DOMException('blocked','QuotaExceededError');};});await page.goto('/');await page.locator('[data-choice="hill"]').tap();await expect(page.locator('#save-status')).toContainText('Could not save');await page.getByRole('button',{name:'Preview Tomorrow'}).tap();await expect(page.locator('.line')).toContainText('blanket');});
+test('360 by 640 has no horizontal overflow and both targets visible',async({page})=>{await page.setViewportSize({width:360,height:640});await page.goto('/');for(const name of ['hill','square']){const box=await page.locator(`[data-choice="${name}"]`).boundingBox();expect(box!.y+box!.height).toBeLessThan(640);}expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(360);});
